@@ -13,7 +13,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sagemakerruntime.SageMakerRuntimeAsyncClient;
 import software.amazon.awssdk.services.sagemakerruntime.model.InvokeEndpointRequest;
 import software.amazon.awssdk.services.sagemakerruntime.model.InvokeEndpointResponse;
-import software.amazon.examples.model.RideRequest;
+import software.amazon.examples.model.sagemaker.CorrelatedResult;
 import software.amazon.examples.model.sagemaker.InputData;
 import software.amazon.examples.model.sagemaker.Result;
 
@@ -22,21 +22,29 @@ import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
-public class SagemakerFunction extends RichAsyncFunction<RideRequest, Result> {
+public class SagemakerFunction<IN> extends RichAsyncFunction<IN, CorrelatedResult<IN>> {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final ObjectWriter WRITER = MAPPER.writer();
 
+    private final String endpointName;
+    private final Region region;
+
     private transient SageMakerRuntimeAsyncClient client;
 
+    public SagemakerFunction(String endpointName, Region region) {
+        this.endpointName = endpointName;
+        this.region = region;
+    }
+
     @Override
-    public void asyncInvoke(RideRequest rideRequest, ResultFuture<Result> resultFuture) throws Exception {
+    public void asyncInvoke(IN input, ResultFuture<CorrelatedResult<IN>> resultFuture) throws Exception {
         final CompletableFuture<InvokeEndpointResponse> result = client.invokeEndpoint(InvokeEndpointRequest.builder()
-                .endpointName("jumpstart-example-randomforest-2022-12-07-12-06-47")
-                .body(SdkBytes.fromByteArray(WRITER.writeValueAsBytes(InputData.from(
-                    ImmutableList.of(rideRequest.getExpectedFare())
-                ))))
-                .build());
+            .endpointName(endpointName)
+            .body(SdkBytes.fromByteArray(WRITER.writeValueAsBytes(InputData.from(
+                ImmutableList.of(input)
+            ))))
+            .build());
 
         CompletableFuture.supplyAsync(() -> {
             try {
@@ -44,9 +52,13 @@ public class SagemakerFunction extends RichAsyncFunction<RideRequest, Result> {
             } catch (InterruptedException | ExecutionException e) {
                 return null;
             }
-        }).thenAccept( invokeEndpointResponse -> {
+        }).thenAccept(invokeEndpointResponse -> {
             try {
-                resultFuture.complete(Collections.singleton(Result.fromResponse(MAPPER, invokeEndpointResponse)));
+                resultFuture.complete(Collections.singleton(
+                    CorrelatedResult.<IN>builder()
+                        .input(input)
+                        .result(Result.fromResponse(MAPPER, invokeEndpointResponse))
+                        .build()));
             } catch (IOException e) {
                 resultFuture.completeExceptionally(e);
             }
@@ -56,7 +68,7 @@ public class SagemakerFunction extends RichAsyncFunction<RideRequest, Result> {
     @Override
     public void open(Configuration parameters) throws Exception {
         client = SageMakerRuntimeAsyncClient.builder()
-            .region(Region.EU_WEST_2)
+            .region(region)
             .build();
     }
 

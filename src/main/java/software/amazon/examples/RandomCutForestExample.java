@@ -7,9 +7,10 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kinesis.FlinkKinesisConsumer;
 
 import lombok.extern.slf4j.Slf4j;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.examples.model.RideRequest;
 import software.amazon.examples.model.RideRequestDeserialisationSchema;
-import software.amazon.examples.model.sagemaker.Result;
+import software.amazon.examples.model.sagemaker.CorrelatedResult;
 import software.amazon.examples.operators.SagemakerFunction;
 
 import java.util.Properties;
@@ -30,10 +31,11 @@ public class RandomCutForestExample {
 
         FlinkKinesisConsumer<RideRequest> source = new FlinkKinesisConsumer<>(STREAM, new RideRequestDeserialisationSchema(), consumerConfig);
 
-        DataStream<RideRequest> rides = env.addSource(source)
-            .returns(RideRequest.class);
+        DataStream<Double> rides = env.addSource(source)
+            .returns(RideRequest.class)
+            .map(RideRequest::getExpectedFare);
 
-        DataStream<Result> results = AsyncDataStream.unorderedWait(rides, new SagemakerFunction(), 60000, TimeUnit.SECONDS);
+        DataStream<CorrelatedResult<Double>> results = AsyncDataStream.unorderedWait(rides, new SagemakerFunction<>("jumpstart-example-randomforest-2022-12-07-12-06-47", Region.EU_WEST_2), 60000, TimeUnit.SECONDS);
 
         results.print();
 
