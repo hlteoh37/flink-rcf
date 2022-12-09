@@ -1,5 +1,7 @@
 package software.amazon.examples.operators;
 
+import org.apache.flink.api.common.functions.Function;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.async.ResultFuture;
 import org.apache.flink.streaming.api.functions.async.RichAsyncFunction;
@@ -19,30 +21,32 @@ import software.amazon.examples.model.sagemaker.Result;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
-public class SagemakerFunction<IN> extends RichAsyncFunction<IN, CorrelatedResult<IN>> {
+public class SagemakerFunction<IN, TYP, VAL extends List<TYP>> extends RichAsyncFunction<IN, CorrelatedResult<IN>> {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final ObjectWriter WRITER = MAPPER.writer();
 
     private final String endpointName;
-    private final Region region;
+    private final MapFunction<IN, VAL> mapFunction;
 
     private transient SageMakerRuntimeAsyncClient client;
 
-    public SagemakerFunction(String endpointName, Region region) {
+    public SagemakerFunction(String endpointName, MapFunction<IN, VAL> mapFunction) {
         this.endpointName = endpointName;
-        this.region = region;
+        this.mapFunction = mapFunction;
     }
 
     @Override
     public void asyncInvoke(IN input, ResultFuture<CorrelatedResult<IN>> resultFuture) throws Exception {
+//        System.out.println("INVOKED");
         final CompletableFuture<InvokeEndpointResponse> result = client.invokeEndpoint(InvokeEndpointRequest.builder()
             .endpointName(endpointName)
             .body(SdkBytes.fromByteArray(WRITER.writeValueAsBytes(InputData.from(
-                ImmutableList.of(input)
+                mapFunction.map(input)
             ))))
             .build());
 
@@ -68,7 +72,7 @@ public class SagemakerFunction<IN> extends RichAsyncFunction<IN, CorrelatedResul
     @Override
     public void open(Configuration parameters) throws Exception {
         client = SageMakerRuntimeAsyncClient.builder()
-            .region(region)
+            .region(Region.EU_WEST_2)
             .build();
     }
 
